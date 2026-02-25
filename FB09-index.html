@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DBフュージョンワールド コレクション</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .card-shimmer {
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .card-shimmer::after {
+            content: "";
+            position: absolute;
+            top: -50%; left: -50%; width: 200%; height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.15), transparent);
+            transform: rotate(45deg);
+            transition: 0.5s;
+        }
+        .card-shimmer:hover::after {
+            left: 100%;
+        }
+        /* モーダルのアニメーション */
+        #modal {
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen pb-10">
+
+    <!-- ヘッダー -->
+    <header class="sticky top-0 z-40 bg-slate-800/95 backdrop-blur shadow-xl p-4 mb-8 border-b border-slate-700">
+        <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <h1 class="text-2xl font-black italic bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 bg-clip-text text-transparent">
+                MY CARD COLLECTION
+            </h1>
+            <input type="text" id="searchInput" placeholder="カード番号や名前で検索..." 
+                class="bg-slate-700 border border-slate-600 rounded-full px-6 py-2 w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-orange-500 placeholder-slate-400">
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4">
+        <div class="mb-6 flex justify-between items-center text-slate-400 text-sm">
+            <div>表示中: <span id="cardCount" class="text-orange-400 font-bold text-lg">0</span> / <span id="totalDisplay">0</span> 枚</div>
+            <div class="text-xs italic underline">※カードをクリックで拡大</div>
+        </div>
+
+        <!-- ギャラリー -->
+        <div id="gallery" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"></div>
+    </main>
+
+    <!-- 拡大モーダル -->
+    <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/95 opacity-0 pointer-events-none">
+        <!-- 閉じるボタン -->
+        <button onclick="closeModal()" class="absolute top-6 right-6 text-white hover:text-orange-500 z-[60]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+
+        <!-- 前へボタン -->
+        <button onclick="prevCard(event)" class="absolute left-4 md:left-10 text-white/50 hover:text-orange-500 transition-colors z-[60]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+        </button>
+
+        <!-- 画像コンテナ -->
+        <div class="max-w-[90vw] max-h-[85vh] flex flex-col items-center">
+            <img id="modalImg" src="" alt="拡大画像" class="max-w-full max-h-[80vh] object-contain shadow-2xl rounded-xl border border-white/10">
+            <div id="modalLabel" class="mt-4 text-xl font-bold tracking-widest text-orange-400"></div>
+        </div>
+
+        <!-- 次へボタン -->
+        <button onclick="nextCard(event)" class="absolute right-4 md:right-10 text-white/50 hover:text-orange-500 transition-colors z-[60]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </button>
+    </div>
+
+    <script>
+        // --- 設定エリア ---
+        const imageFolder = "images/";
+        const baseTotal = 123; // 通常カードの数
+        const specialSuffixes = ["001a", "025a", "049a", "073a", "097a"]; // 追加したい特殊番号
+        
+        let cardData = [];
+        let filteredData = [];
+        let currentIndex = 0;
+
+        // データ生成
+        function initData() {
+            const data = [];
+            for (let i = 1; i <= baseTotal; i++) {
+                const numStr = String(i).padStart(3, '0');
+                // 通常版を追加
+                data.push({ id: numStr, fileName: `FB09-${numStr}.jpg`, label: `FB09-${numStr}` });
+                
+                // もし特殊番号リストに含まれていれば追加
+                const specialId = numStr + "a";
+                if (specialSuffixes.includes(specialId)) {
+                    data.push({ id: specialId, fileName: `FB09-${specialId}.jpg`, label: `FB09-${specialId}` });
+                }
+            }
+            return data;
+        }
+
+        const gallery = document.getElementById('gallery');
+        const searchInput = document.getElementById('searchInput');
+        const modal = document.getElementById('modal');
+        const modalImg = document.getElementById('modalImg');
+        const modalLabel = document.getElementById('modalLabel');
+        const cardCountDisp = document.getElementById('cardCount');
+        const totalDisplay = document.getElementById('totalDisplay');
+
+        cardData = initData();
+        totalDisplay.innerText = cardData.length;
+
+        function renderCards(filter = "") {
+            gallery.innerHTML = "";
+            filteredData = cardData.filter(card => 
+                card.label.toLowerCase().includes(filter.toLowerCase())
+            );
+
+            filteredData.forEach((card, index) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = "card-shimmer bg-slate-800 border border-slate-700 rounded-lg p-3 flex flex-col items-center hover:border-orange-500 transition-all shadow-lg";
+                cardEl.onclick = () => openModal(index);
+                
+                cardEl.innerHTML = `
+                    <div class="relative w-full aspect-[2/2.8] overflow-hidden rounded-md mb-3 bg-slate-700">
+                        <img src="${imageFolder}${card.fileName}" 
+                             alt="${card.label}" 
+                             class="w-full h-full object-cover"
+                             onerror="this.src='https://placehold.co/400x560/1e293b/white?text=No+Image\\n${card.label}'">
+                    </div>
+                    <span class="text-sm font-bold tracking-wider text-slate-300">${card.label}</span>
+                `;
+                gallery.appendChild(cardEl);
+            });
+            
+            cardCountDisp.innerText = filteredData.length;
+        }
+
+        // モーダル操作
+        function openModal(index) {
+            currentIndex = index;
+            updateModalContent();
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            document.body.style.overflow = 'hidden'; // 背景スクロール禁止
+        }
+
+        function closeModal() {
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            document.body.style.overflow = 'auto';
+        }
+
+        function updateModalContent() {
+            const card = filteredData[currentIndex];
+            if (!card) return;
+            modalImg.src = `${imageFolder}${card.fileName}`;
+            modalLabel.innerText = card.label;
+            
+            // 画像読み込み失敗時のプレースホルダー
+            modalImg.onerror = function() {
+                this.src = `https://placehold.co/600x840/1e293b/white?text=${card.label}+Not+Found`;
+            };
+        }
+
+        function nextCard(e) {
+            if (e) e.stopPropagation();
+            currentIndex = (currentIndex + 1) % filteredData.length;
+            updateModalContent();
+        }
+
+        function prevCard(e) {
+            if (e) e.stopPropagation();
+            currentIndex = (currentIndex - 1 + filteredData.length) % filteredData.length;
+            updateModalContent();
+        }
+
+        // キーボード操作
+        document.addEventListener('keydown', (e) => {
+            if (modal.classList.contains('opacity-0')) return;
+            if (e.key === "ArrowRight") nextCard();
+            if (e.key === "ArrowLeft") prevCard();
+            if (e.key === "Escape") closeModal();
+        });
+
+        // 検索
+        searchInput.addEventListener('input', (e) => {
+            renderCards(e.target.value);
+        });
+
+        // 初回実行
+        renderCards();
+    </script>
+</body>
+</html>
